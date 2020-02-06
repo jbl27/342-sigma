@@ -25,7 +25,7 @@ BRG_VAL equ (0x100-(CLK/(16*BAUD)))
 ; vector table 
 
 ;reset vector 
-	org 0x0000
+org 0x0000
 	ljmp main
 	
 ; External interrupt 0 vector (not used in this code)
@@ -34,7 +34,7 @@ org 0x0003
 
 ; Timer/Counter 0 overflow interrupt vector
 org 0x000B
-	reti 
+	timer0ISR
 
 ; External interrupt 1 vector (not used in this code)
 org 0x0013
@@ -66,8 +66,12 @@ count_ms0:		ds 2		; counter for timer one
 row_select_1: 	ds 1		; used  for user input of menue 
 
 bseg 
-nf:				dbit 1		
-rdy_send:		dbit 1		; idiectes when data is rdy to be sent to pyton 
+nf:					dbit 1		
+rdy_send:			dbit 1		; idiectes when data is rdy to be sent to pyton 
+inc_flag: 			dbit 1		
+dec_flag:			dbit 1
+cancel_flag:		dbit 1
+select_flag:		dbit 1
 
 ; ------------------------------------------------------------
 ; external file includes 
@@ -75,7 +79,7 @@ rdy_send:		dbit 1		; idiectes when data is rdy to be sent to pyton
 cseg 
 
 $NOLIST
-$include(ISRtable.inc)
+$include(ISR_table.inc)
 $LIST
 $NOLIST
 $include(LCD_4bit.inc)
@@ -87,6 +91,34 @@ $NOLIST
 $include(ADC.inc)
 $LIST
 
+; ------------------------------------------------------------
+; initialization of internal and external peripherals 
+
+conFigTimer0:
+	clr TR0			; stop timer 0
+	
+	; configure timer0x
+	mov a, TMOD
+	anl a, #0xf0 	; Clear the bits for timer 0
+	orl a, #0x01 	; configer timer 0, GATE0 = 0, C/T = 0, T0M0 = 0, T0M1 = 1 
+	
+	; load timer
+	mov TMOD, a
+	mov TH0, #high(T0_RELOAD)
+	mov TL0, #low(T0_RELOAD)
+	
+	; Set autoreload value
+	mov RH0, #high(T0_RELOAD)
+	mov RL0, #low(T0_RELOAD)
+	
+    setb ET0  		; Enable timer 0 interrupt
+    setb TR0  		; Start timer 0
+	ret
+	
+; ------------------------------------------------------------
+; main 
+
+main:
 
 end 
 

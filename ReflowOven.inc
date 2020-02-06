@@ -100,8 +100,7 @@ Row1_Select_screen_1:  db 'Soak', 0
 Row1_Select_screen_2:  db 'Reflow', 0
 Row1_Select_screen_0:  db 'Presets', 0
 Row1_Select_screen_3:  db 'Accents', 0
-Row2_Select_screen_1:  db 'Time', 0
-Row2_Select_screen_2:  db 'Temperature',0
+Row2_Select_screen_1:  db 'Time:xx Temp:xxx', 0
 Welcome_to_The_Show:   db 'Welcome',0
 
 ;---------------------------------;
@@ -197,43 +196,6 @@ Timer2_ISR_decrement:
 	add a, #0x99 ; Adding the 10-complement of -1 is like subtracting 1.
 Timer2_ISR_da:
 	da a ; Decimal adjust instruction.  Check datasheet for more details!
-	cjne a, #0x60, BCDup ;Checks if a is 60; if it is, clears a
-	clr a ;Set a, and thereby BCD_counter to 0
-	mov BCD_counter, a
-	;Sets a up for minutes
-	mov a, min_count
-	inc a
-	sjmp checkmin
-
-BCDup:
-	mov BCD_counter, a
-	sjmp Timer2_ISR_done
-	
-checkmin:
-	;check minutes
-	da a
-	cjne a, #0x60, min_up
-	clr a
-	mov min_count, a
-	mov a, hour
-	inc a
-	sjmp checkhour
-min_up:
-	mov min_count, a
-	sjmp Timer2_ISR_done
-	
-checkhour:
-	da a
-	cjne a, #0x13, hourup
-	mov a, #0x01
-	mov hour, a
-	mov a, ToD
-	cpl a ;Compliment ToD
-	mov ToD,a
-	sjmp Timer2_ISR_done
-hourup:
-	mov hour, a
-	
 Timer2_ISR_done:
 	pop psw
 	pop acc
@@ -356,7 +318,17 @@ Accent_Screen_Check:
 ;Variables: soak_temp_var
 ;---------
 Soak_Screen:
-	
+	Set_Cursor(1,1)
+	Display_Constant_String(#Row1_Select_screen_1)
+	Set_Cursor(2,1)
+	Display_Constant_String(#Row2_Select_screen_1)
+
+Soak_Screen_Wait:
+	jb Swap_But_1, 
+	Wait_Milli_Seconds(#50)
+	jb Confirm_but, Selection
+	jnb Confirm_but, $
+		
 
 ;---------
 ;Reflow Screen

@@ -69,7 +69,7 @@ max_temp: ds 1
 max_time: ds 1
 
 row_select_1: ds 1
-row_select_2: ds 1
+time_temp_select: ds 1
 
 ; In the 8051 we have variables that are 1-bit in size.  We can use the setb, clr, jb, and jnb
 ; instructions with these variables.  This is how you define a 1-bit variable:
@@ -322,13 +322,77 @@ Soak_Screen:
 	Display_Constant_String(#Row1_Select_screen_1)
 	Set_Cursor(2,1)
 	Display_Constant_String(#Row2_Select_screen_1)
+	mov time_temp_select, #0x00
 
 Soak_Screen_Wait:
-	jb Swap_But_1, 
-	Wait_Milli_Seconds(#50)
-	jb Confirm_but, Selection
-	jnb Confirm_but, $
-		
+	mov a, sel_flag
+	jnb a, time_temp_flags
+	;If sel_flag is is pressed, swap temp and time
+	cpl time_temp_select
+	clr sel_flag
+	
+
+time_temp_flags:
+	mov a, inc_flag
+	cjne a, #0x00, inc_soak_temp
+	mov a, dec_flag
+	cjne a, #0x00, dec_soak_temp
+
+inc_soak_temp:
+	clr inc_flag
+	mov a, time_temp_select
+	cjne a, #0x00, inc_soak_time
+	mov a, soak_temp_var
+	inc a
+	da a
+	cjne a, #0xAB, max_temp_hit
+	mov soak_temp_var, a
+	ljmp confirm_soak_values
+
+max_temp_hit:
+	mov soak_temp_var, #0xAA
+	ljmp confirm_soak_values
+
+inc_soak_time:
+	mov a, soak_time_var
+	inc a
+	da a
+	cjne a, #0x79, max_time_hit
+	mov soak_time_var, a
+	ljmp confirm_soak_values
+
+max_time_hit:
+	mov soak_time_var, #0x78
+	ljmp confirm_soak_values
+
+dec_soak_temp:
+	clr dec_flag
+	mov a, time_temp_select
+	cjne a, #0x00, dec_soak_time
+	mov a, soak_temp_var
+	dec a
+	da a
+	cjne a, #0x81, max_temp_hit
+	mov soak_temp_var, a
+	ljmp confirm_soak_values
+
+min_temp_hit:
+	mov soak_temp_var, #0x82
+	ljmp confirm_soak_values
+
+dec_soak_time:
+	mov a, soak_time_var
+	dec a
+	da a
+	cjne a, #0x47, max_time_hit
+	mov soak_time_var, a
+	ljmp confirm_soak_values
+
+min_time_hit:
+	mov soak_time_var, #0x48
+	ljmp confirm_soak_values
+
+
 
 ;---------
 ;Reflow Screen

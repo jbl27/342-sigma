@@ -44,7 +44,8 @@ $include(math32.inc) ; A library of LCD related functions and utility macros
 $list
 
 cseg
-; These 'equ' must match the wiring between the microcontroller and the LCD!
+; These 'equ' must match the wiring between the microcontroller and the LCD
+;**Change LCD Pins
 LCD_RS equ P1.1
 LCD_RW equ P1.2
 LCD_E  equ P1.3
@@ -434,10 +435,23 @@ Stop_Sequence:
 	mov soak_temp_var, #150
 	mov reflow_temp_var, #225
 	mov reflow_time_var, #30
+	Set_Cursor(2,1)
 	Send_Constant_String(#Powering_Down)
 	;***Once temperature dips below a certain value, continue
 	
 	ljmp OFF_Sequence
+
+;---------
+;Check_Stop
+;Checks if stop button is pressed
+;---------
+Check_stop:
+	jb Start_But, DONTSTOPMENOW
+	Wait_Milli_Seconds(#50)
+	jb Start_But, DONTSTOPMENOW
+	jnb Start_But
+	;Ah shit STOP STOP STOP
+	ljmp Stop_Sequence
 
 ;----------
 ;OFF SEQUENCE
@@ -463,6 +477,14 @@ BURNBABYBURN:;DIIISCO INFERNO
 	lcall Temperature_Heating(soak_temp_var);consider making 'Temperature_Heating' a macro script so that it can be reused
 
 presoak:
+	jb Start_But, ?presoak
+	Wait_Milli_Seconds(#50)
+	jb Start_But, ?presoak
+	jnb Start_But
+	;Ah shit STOP STOP STOP
+	ljmp Stop_Sequence
+
+?presoak:
 	Set_Cursor(2,1)
 	Display_BCD();***current temp
 	mov x, ;***current temp
@@ -479,6 +501,14 @@ presoak:
 	Display_BCD(soak_time_var)
 
 soak:
+	jb Start_But, ?soak
+	Wait_Milli_Seconds(#50)
+	jb Start_But, ?soak
+	jnb Start_But
+	;Ah shit STOP STOP STOP
+	ljmp Stop_Sequence
+
+?soak:
 	;check timer
 	Set_Cursor(2,13)
 	Display_BCD(;***current_temp)
@@ -499,6 +529,14 @@ soak:
 	lcall Temperature_heating(reflow_temp_var)
 
 prereflow:
+	jb Start_But, ?prereflow
+	Wait_Milli_Seconds(#50)
+	jb Start_But, ?prereflow
+	jnb Start_But
+	;Ah shit STOP STOP STOP
+	ljmp Stop_Sequence
+
+?prereflow:
 	Set_Cursor(2,13)
 	Display_BCD();***current temp
 	mov x, ;***current temp
@@ -542,9 +580,17 @@ FLAMINGHOTCHEETOS:
 	cjne a, #0x01, notflaming
 	;IS FLAMIN
 	ljmp Stop_Sequence
+
 notflaming:
+	jb Start_But, ?DONTSTOPMENOW
+	Wait_Milli_Seconds(#50)
+	jb Start_But, ?DONTSTOPMENOW
+	jnb Start_But
+	;Ah shit STOP STOP STOP
+	ljmp Stop_Sequence
+?DONTSTOPMENOW:
 	ljmp ?reflow
-
-
+	
+	;just in case
 	ljmp loop
 END

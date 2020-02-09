@@ -441,18 +441,6 @@ Stop_Sequence:
 	
 	ljmp OFF_Sequence
 
-;---------
-;Check_Stop
-;Checks if stop button is pressed
-;---------
-Check_stop:
-	jb Start_But, DONTSTOPMENOW
-	Wait_Milli_Seconds(#50)
-	jb Start_But, DONTSTOPMENOW
-	jnb Start_But
-	;Ah shit STOP STOP STOP
-	ljmp Stop_Sequence
-
 ;----------
 ;OFF SEQUENCE
 ;Turns off screen

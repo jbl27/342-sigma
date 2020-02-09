@@ -464,8 +464,8 @@ BURNBABYBURN:;DIIISCO INFERNO
 
 presoak:
 	Set_Cursor(2,1)
-	Display_BCD();current temp
-	mov x, ;current temp
+	Display_BCD();***current temp
+	mov x, ;***current temp
 	mov y, soak_temp_var
 	lcall x_gt_y ;if x is greater than y, then mf = 1
 	mov a, mf
@@ -481,7 +481,7 @@ presoak:
 soak:
 	;check timer
 	Set_Cursor(2,13)
-	Display_BCD(;current_temp)
+	Display_BCD(;***current_temp)
 	mov a, seconds_flag
 	cjne a, #0x01, soak
 	clr seconds_flag
@@ -500,8 +500,8 @@ soak:
 
 prereflow:
 	Set_Cursor(2,13)
-	Display_BCD();current temp
-	mov x, ;current temp
+	Display_BCD();***current temp
+	mov x, ;***current temp
 	mov y, reflow_temp_var
 	x_gt_y ;if x is greater than y, then mf = 1
 	mov a, mf
@@ -514,7 +514,7 @@ prereflow:
 
 reflow:
 	Set_Cursor(2,13)
-	Send_BCD();current_temp
+	Send_BCD();***current_temp
 	;Somehow maintain temp code
 	ljmp FLAMINGHOTCHEETOS
 ?reflow:
@@ -535,7 +535,7 @@ reflow:
 	ljmp Stop_Sequence
 	
 FLAMINGHOTCHEETOS:
-	mov x, ;current_temp
+	mov x, ;***current_temp
 	mov y, #0xEB
 	x_gt_y
 	mov a, mf

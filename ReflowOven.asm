@@ -438,7 +438,9 @@ Stop_Sequence:
 	Set_Cursor(2,1)
 	Send_Constant_String(#Powering_Down)
 	;***Once temperature dips below a certain value, continue
-	
+
+	mov a, ;***currenttemp
+	cjne a, #30, 
 	ljmp OFF_Sequence
 
 ;----------

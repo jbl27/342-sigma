@@ -11,15 +11,20 @@ $LIST
 ; ------------------------------------------------------------
 ; Constant derectives 
 
-CLK 	equ 7373000							; internal RC oscilator frrquancy 
+CLK         equ 14746000  							; Microcontroller system clock frequency in Hz
 
-; timer constants  
-T0_RATW equ 1000							; 1000 Hz = 1 ms
-T0_REL	equ equ ((65536-(CLK/T0_RATE)))		; Value to put in reload register of timer 0
+; CCU timer constants
+CCU_RATE    equ 22050    						 	; 22050Hz is the sampling rate of the wav file we are playing
+CCU_RELOAD  equ ((65536-((CLK/(2*CCU_RATE)))))
 
-; baud rate gen constants 
-BAUD 	equ 9600
-BRG_VAL equ (0x100-(CLK/(16*BAUD)))
+; timer0 constants 
+T0_RATE   	equ 1000     					; 1000HZ = 1 ms
+T0_RELOAD 	equ ((65536-(CLK/T0_RATE)))
+
+; baud rate constatns 
+BAUD        equ 115200
+BRVAL       equ ((CLK/BAUD)-16)						; internal RC oscilator frrquancy 
+
 
 ; ------------------------------------------------------------
 ; vector table 
@@ -34,7 +39,7 @@ org 0x0003
 
 ; Timer/Counter 0 overflow interrupt vector
 org 0x000B
-	timer0ISR
+	ljmp timer0_ISR
 
 ; External interrupt 1 vector (not used in this code)
 org 0x0013
@@ -47,10 +52,10 @@ org 0x001B
 ; Serial port receive/transmit interrupt vector (not used in this code)
 org 0x0023 
 	reti
-	
-; Timer/Counter 2 overflow interrupt vector
-org 0x002B
-	reti
+
+; CCU interrupt vector.  Used in this code to replay the wave file.
+org 0x005b 
+	ljmp CCU_ISR
 
 ; ------------------------------------------------------------
 ; variables  
@@ -60,8 +65,9 @@ dseg at 0x30
 x:				ds 4
 y:				ds 4
 bcd:			ds 5
-cold_temp:		ds 4		; temprtrue of cold joint
-hot_temp:		ds 4		; tempreture of hot joint 
+cold_temp:		ds 1		; temprtrue of cold joint
+hot_temp:		ds 1		; tempreture of hot joint 
+total_temp:		ds 4		; total temprtue 
 count_ms0:		ds 2		; counter for timer one 
 row_select_1: 	ds 1		; used  for user input of menue 
 
@@ -72,6 +78,7 @@ inc_flag: 			dbit 1
 dec_flag:			dbit 1
 cancel_flag:		dbit 1
 select_flag:		dbit 1
+seconds_flag:		dbit 1
 
 ; ------------------------------------------------------------
 ; external file includes 
@@ -88,7 +95,10 @@ $NOLIST
 $include(math32.inc)
 $LIST
 $NOLIST
-$include(ADC.inc)
+$include(ADC_temp_read.inc)
+$LIST
+$NOLIST
+$include(SPI_RS232.inc)
 $LIST
 
 ; ------------------------------------------------------------
@@ -101,20 +111,41 @@ conFigTimer0:
 	mov a, TMOD
 	anl a, #0xf0 	; Clear the bits for timer 0
 	orl a, #0x01 	; configer timer 0, GATE0 = 0, C/T = 0, T0M0 = 0, T0M1 = 1 
+	mov TMOD, a
 	
 	; load timer
-	mov TMOD, a
 	mov TH0, #high(T0_RELOAD)
 	mov TL0, #low(T0_RELOAD)
 	
-	; Set autoreload value
-	mov RH0, #high(T0_RELOAD)
-	mov RL0, #low(T0_RELOAD)
 	
     setb ET0  		; Enable timer 0 interrupt
     setb TR0  		; Start timer 0
 	ret
+
+; ------------------------------------------------------------
+; configers CCU timer 
+
+config_CCU:
+	mov TH2, #high(CCU_RELOAD)
+	mov TL2, #low(CCU_RELOAD)
+	mov TOR2H, #high(CCU_RELOAD)
+	mov TOR2L, #low(CCU_RELOAD)
+	mov TCR21, #10000000b 				; Latch the reload value
+	mov TICR2, #10000000b 				; Enable CCU Timer Overflow Interrupt
+	setb ECCU 							; Enable CCU interrupt
+	setb TMOD20 						; Start CCU timer
+	ret
 	
+; ----------------------------------------------------------------------
+; double the internal rc clk rate of the P89LPC 
+
+Double_Clk:
+    mov dptr, #CLKCON
+    movx a, @dptr
+    orl a, #00001000B 			; double the clock speed to 14.746MHz
+    movx @dptr,a
+	ret
+
 ; ------------------------------------------------------------
 ; main 
 

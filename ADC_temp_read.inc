@@ -2,66 +2,43 @@
 ; Code contains instructions neded to read tempreture 
 ; from ADC.
 ; 
+; Assumes the use of the internal ADC of the P89LPC9351
+;
 ; This file assmes the math32.inc file has been included prior to 
 ; including this file 
 ;
-; This code will assume the use of the MCP3008 as the ADC
-;
-; This code assumes the LM335 output is connected to CH0 of ADC
-; and the K-type thermocouple op-amp output is connected to CH1
-; of ADC 
-;
-; Call 'configBB' to initlize ports for bit-banging MCP3008
-;
-; call the readTemp function to read the current temprture value 
-; and store it in a 4-byte varaible called 'total_temp', the value
-; stored is a hex representation of the PCB temp in the reflow oven 
-;
-; TO communicate with the MCP3008, SPI bit-banging is used 
-; 'BB' hence referse to bit-bang 
+; temp of PCB stroed in 4-byte var 'total_temp'
+
 
 cseg 
 
-; ------------------------------------------------------------
-; port declerations 
-
-BB_SCLK equ px.x			; slave clk pin
-BB_MISO equ px.x			; Master in, slave out pin
-BB_MOSI equ px.x			; Master out, slave in pin
-BB_CS1	equ px.x			; chip select 1 pin 
 
 ; ----------------------------------------------------------------------
-; intialize prots for bit banging of MPC3008
+; configure ADC 
 
-configBB:
-	setb	BB_MISO			
-	clr 	BB_SCLK				; sclk is idle low 
-	setb 	BB_CS1				; cs1 is idle high 
-	ret 
+InitADC0:
+	; ADC0_0 is connected to P1.7
+	; ADC0_1 is connected to P0.0
+	; ADC0_2 is connected to P2.1
+	; ADC0_3 is connected to P2.0
+    ; Configure pins P1.7, P0.0, P2.1, and P2.0 as inputs
+    orl P0M1, #00000001b
+    anl P0M2, #11111110b
+    orl P1M1, #10000000b
+    anl P1M2, #01111111b
+    orl P2M1, #00000011b
+    anl P2M2, #11111100b
 	
+	; Setup ADC0
+	setb BURST0 		; Autoscan continuos conversion mode
+	mov ADMODB,#0x20 	; ADC0 clock is 7.3728MHz/2
+	mov	ADINS,#0x0f 	; Select the four channels of ADC0 for conversion
+	mov	ADCON0,#0x05 	; Enable the converter and start immediately
 	
-; ----------------------------------------------------------------------
-; SPI bit-bang subroutine 
-; transmitted byte expected in r0
-; recivend byte stored in r1
-
-bitBang:
-	push acc
-	mov r1, #0		; recived byte stored in r1
-	mov r2, #8		; loop counter, 8 bits 
-loopBB8bitCyle:	
-	mov a, r0		; byte to write in r0
-	rlc a			; carry flag has bit to write
-	mov r0, a
-	mov BB_MOSI, c
-	setb BB_SCLK	; transmit 
-	mov c, BB_MISO	; read recived bit
-	mov a, r1		; save recivned bit in r1 
-	rlc a
-	mov r1, a
-	clr BB_SCLK
-	djnz r2, loopBB8bitCyle
-	pop acc
+	; Wait for first conversion to complete
+InitADC0_L1:
+	mov	a,ADCON0
+	jnb	acc.3,InitADC0_L1
 	ret
 	
 ; ----------------------------------------------------------------------
@@ -69,39 +46,15 @@ loopBB8bitCyle:
 ; read CH1, store in hot_temp 
 
 readADC:
-	clr BB_CS1
-	mov R0, #0x01 			; Start bit = 1
-	lcall bitBang
-	mov R0, #0x80			; read CH0 (LM335)
-	lcall bitBang
-	mov a, R1 				; R1 contains bits 8 and 9
-	anl a, #0x03 			; We need only the two least significant bits
-	mov cold_temp+1, a 		; Save result high.
-	mov R0, #55H 			; It doesn't matter what we transmit...
-	lcall bitBang
-	mov a, r1
-	mov cold_temp+0, a 		; R1 contains bits 0 to 7. Save result low.
-	setb BB_CS1
 	
-	; to sclk cycles to ensure MCP3008 regonzises new channel read 
-	cpl BB_SCLK
-	cpl BB_SCLK				; firs cycle 
-	cpl BB_SCLK
-	cpl BB_SCLK				; second cycle 
+	; read signal from LM335
+	mov	a, AD0DAT2
+	mov cold_temp, a
 	
-	clr BB_CS1
-	mov R0, #0x01 			; Start bit = 1
-	lcall bitBang
-	mov R0, #0x90			; read CH1 (K-type thermo op-amp)
-	lcall bitBang
-	mov a, R1 				; R1 contains bits 8 and 9
-	anl a, #0x03 			; We need only the two least significant bits
-	mov hot_temp+1, a 		; Save result high.
-	mov R0, #55H 			; It doesn't matter what we transmit...
-	lcall bitBang
-	mov a, r1
-	mov hot_temp+0, a 		; R1 contains bits 0 to 7. Save result low.
-	setb BB_CS1
+	; read signal from k-type thermo op-amp
+	mov a, AD0DAT3
+	mov hot_temp, a
+	
 	ret
 	
 ; ----------------------------------------------------------------------
@@ -111,21 +64,21 @@ readADC:
 calcTemp:
 	
 	; move hot_temp to x
-	mov x+0, hot_temp+0
-	mov x+1, hot_temp+1
+	mov x+0, hot_temp
+	mov x+1, #0
 	mov x+2, #0
 	mov x+3, #0
 	
 	; move cold_temp to y
-	mov y+0, cold_temp+0
-	mov y+1, cold_temp+1
+	mov y+0, cold_temp
+	mov y+1, #0
 	mov y+2, #0
 	mov y+3, #0
 	
 	lcall sub32					; x = hot_temp - cold_temp 
-	Load_y(410)
+	Load_y(330)
 	lcall mul32					; x = 410*(hot_temp - cold_temp)
-	Load_y(1023)
+	Load_y(255)
 	lcall div32					; x = 410*(hot_temp - cold_temp)/1023
 	Load_y(273)
 	lcall sub32					; x = 410*(hot_temp - cold_temp)/1023 - 273
@@ -147,7 +100,7 @@ calcTemp:
 readTemp:	
 	lcall readADC
 	lcall calcTemp
-ret 
+	ret 
 	
 	
 	

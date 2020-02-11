@@ -113,6 +113,7 @@ Timer1_Init:
 	clr TR1
 	; reset PWM_flag, PWM_FREQ, PWM_DUTY
 	mov PWM_FREQ, #0
+	mov PWM_FREQ+1, #0
 	mov PWM_DUTY, #0
 	clr PWM_flag
 	clr PWM_pin

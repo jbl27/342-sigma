@@ -75,19 +75,19 @@ calcTemp:
 	mov y+2, #0
 	mov y+3, #0
 	
-	lcall sub32					; x = hot_temp - cold_temp 
+	lcall add32					; x = hot_temp - cold_temp 
 	Load_y(330)
-	lcall mul32					; x = 410*(hot_temp - cold_temp)
+	lcall mul32					; x = 330*(hot_temp - cold_temp)
 	Load_y(255)
-	lcall div32					; x = 410*(hot_temp - cold_temp)/1023
+	lcall div32					; x = 330*(hot_temp - cold_temp)/1023
 	Load_y(273)
-	lcall sub32					; x = 410*(hot_temp - cold_temp)/1023 - 273
+	lcall sub32					; x = 330*(hot_temp - cold_temp)/1023 - 273
 	
 	; move x to total_temp 
 	mov total_temp+0, x+0
 	mov total_temp+1, x+1
-	mov total_temp+2, #0
-	mov total_temp+3, #0
+	mov total_temp+2, x+2
+	mov total_temp+3, x+3
 	
 	ret
 	

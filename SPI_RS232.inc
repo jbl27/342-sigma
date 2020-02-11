@@ -68,8 +68,8 @@ grabTemp:
 	; move total_temp to x
 	mov x+0, total_temp+0
 	mov x+1, total_temp+1
-	mov x+0, #0
-	mov x+0, #0
+	mov x+2, total_temp+2
+	mov x+3, total_temp+3
 	
 	lcall hex2bcd 			; bcd = BCD(total_temp)
 	
@@ -79,6 +79,7 @@ grabTemp:
 ; sends the temp of PCB via RS232 
 
 sendTemp:
+	lcall readTemp
 	lcall grabTemp
 	_sendBCD(bcd+1)
 	_sendBCD(bcd+0)

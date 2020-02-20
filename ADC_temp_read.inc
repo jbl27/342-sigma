@@ -12,27 +12,35 @@
 
 cseg 
 
+; ----------------------------------------------------------------------
+; Macro to store the reflow temp to the var 'x' and the BCD version of 
+; the reflow temp to the var 'bcd'
+
+_feel_the_burn mac
+	lcall readTemp
+	lcall calcTemp
+	mov x+0, total_temp+0	; mov reflow_temp to x
+	mov x+1, total_temp+1
+	mov x+2, total_temp+2
+	mov x+3, total_temp+3
+	lcall hex2bcd			; bcd = BCD(total_temp)
+endmac
 
 ; ----------------------------------------------------------------------
 ; configure ADC 
 
 InitADC0:
-	; ADC0_0 is connected to P1.7
-	; ADC0_1 is connected to P0.0
 	; ADC0_2 is connected to P2.1
 	; ADC0_3 is connected to P2.0
-    ; Configure pins P1.7, P0.0, P2.1, and P2.0 as inputs
-    orl P0M1, #00000001b
-    anl P0M2, #11111110b
-    orl P1M1, #10000000b
-    anl P1M2, #01111111b
+	
+	; Configure pins P2.1, and P2.0 as inputs
     orl P2M1, #00000011b
     anl P2M2, #11111100b
 	
 	; Setup ADC0
 	setb BURST0 		; Autoscan continuos conversion mode
 	mov ADMODB,#0x20 	; ADC0 clock is 7.3728MHz/2
-	mov	ADINS,#0x0f 	; Select the four channels of ADC0 for conversion
+	mov	ADINS,#0x0c 	; Select AD02 and AD02 as channels 
 	mov	ADCON0,#0x05 	; Enable the converter and start immediately
 	
 	; Wait for first conversion to complete

@@ -33,6 +33,16 @@ putchar_L1:
 	ret
 
 ; ------------------------------------------------------------
+; recive a byte form serial port 
+
+getchar:
+	jbc	RI,getchar_L1
+	sjmp getchar
+getchar_L1:
+	mov	a,SBUF
+	ret
+
+; ------------------------------------------------------------
 ; send a bcd value via RS232
 ; bcd value expected in r0 
 

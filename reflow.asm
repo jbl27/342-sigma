@@ -18,16 +18,19 @@ CCU_RATE    equ 22050    						 	; 22050Hz is the sampling rate of the wav file 
 CCU_RELOAD  equ ((65536-((CLK/(2*CCU_RATE)))))
 
 ; timer0 constants 
-T0_RATE   	equ 400     					; 200 HZ = 5 ms
+T0_RATE   	equ 200     					; 200 HZ = 5 ms
 T0_RELOAD 	equ ((65536-(CLK/2*T0_RATE)))
+
+T1_RATE   	equ 2000     					; 200 HZ = 5 ms
+T1_RELOAD 	equ ((65536-(CLK/2*T0_RATE)))
 
 ; baud rate constatns 
 BAUD        equ 115200
 BRVAL       equ ((CLK/BAUD)-16)						; internal RC oscilator frrquancy 
 
 ; port declrations 
-Confirm_But		equ P2.6
-Start_But		equ P3.0
+CONF_BUT		equ P2.6
+SEL_BUT			equ P3.0
 INC_But			equ p0.2
 DEC_But			equ p0.3
 LCD_RS 			equ P0.5
@@ -39,7 +42,7 @@ LCD_D6 			equ P1.4
 LCD_D7 			equ P1.6
 FLASH_CE    	equ P2.4
 SOUND       	equ P2.7
-PWM_pin			equ p1.7
+PWM_PIN			equ p1.7
 
 ; Commands supported by the SPI flash memory according to the datasheet
 WRITE_ENABLE     EQU 0x06  ; Address:0 Dummy:0 Num:0
@@ -101,28 +104,29 @@ soak_time_var: 		ds 1
 soak_temp_var: 		ds 1
 reflow_time_var: 	ds 1
 reflow_temp_var: 	ds 1
-row_select_1: 		ds 1
-time_temp_select: 	ds 1
+settings_select: 	ds 1
 preset_select: 		ds 1
 w:   				ds 3 		; 24-bit play counter.  Decremented in CCU ISR.
-PWM_FREQ:			ds 2
-PWM_DUTY:			ds 1
 x_temp:				ds 4
 y_temp:				ds 4
-duty_cycle:			ds 1
 soak_temp_save:		ds 1
 soak_time_save:		ds 1
 reflow_temp_save:	ds 1
 reflow_time_save:   ds 1
+pwm_count:			ds 1
+timer1_count:		ds 1
+total_time:			ds 2
 
 
 bseg 
-mf:					dbit 1		
+mf:					dbit 1	
+mf_temp:			dbit 1	
 inc_flag: 			dbit 1		
 dec_flag:			dbit 1
 sel_flag:			dbit 1
+confirm_flag:		dbit 1
 seconds_flag:		dbit 1
-PWM_flag:			dbit 1
+time_temp_select:   dbit 1
 
 ; ------------------------------------------------------------
 ; external file includes 
@@ -175,36 +179,34 @@ conFigTimer0:
 	mov TH0, #high(T0_RELOAD)
 	mov TL0, #low(T0_RELOAD)
 	
+	setb TR0
 	setb ET0
-    setb TR0  		; Start timer 0
+	
 	ret
 
 ; ------------------------------------------------------------
 ; configers timer 1 for mode 1 
 
 Timer1_Init:
-	mov a, #0x89
-	anl a, #0x0f
-	orl a, #00010000b
-	mov 0x89, a
-	mov a, #0x8f
-	anl a, #0x0f
-	orl a, #00000000b 
-	mov a, #0x8f
-	; make sure timer 1 starts off
-	clr TR1
-	; reset PWM_flag, PWM_FREQ, PWM_DUTY
-	mov PWM_FREQ, #0
-	mov PWM_FREQ+1, #0
-	mov PWM_DUTY, #0
-	clr PWM_flag
-	clr PWM_pin
-	mov TH1, #0x00
-	mov TL1, #0x00
+	clr TR1		; stop timer 1
 	
-	setb ET1
+	; configure timer0x
+	mov a, TMOD
+	anl a, #0x0f 	; Clear the bits for timer 1
+	orl a, #0x10 	; configer timer 1, GATE0 = 0, C/T = 0, T0M0 = 0, T0M1 = 1 
+	mov TMOD, a
+	
+	; Auxiliary mode config 
+	mov a, TAMOD
+	anl a, #0xf0
+	mov TAMOD,a 
+	
+	; load timer
+	mov TH1, #high(T1_RELOAD)
+	mov TL1, #low(T1_RELOAD)
 	
 	ret
+	
 
 ; ------------------------------------------------------------
 ; configers CCU timer 
@@ -245,35 +247,23 @@ Double_Clk:
     movx @dptr,a
 	ret
 
-; ----------------------------------------------------------------------
-; check PWM_flag then enable/disable TR1
-
-Check_PWM_flag:
-	jnb PWM_flag, PWM_off
-	setb TR1
-	ret
-PWM_off:
-	clr TR1
-	clr PWM_pin
-	ret
 
 ; ----------------------------------------------------------------------
 ; declared constats and strings 
 
-;                          1234567890123456    <- This helps determine the location of the counter
-Row1_Select_screen_1:  db 'Soak', 0
-Row1_Select_screen_2:  db 'Reflow', 0
-Row1_presoak:		   db 'Pre-soak',0
-Row1_prereflow:		   db 'Pre-reflow',0
-Row1_cooldown:		   db 'Cooldown', 0
-Row1_Select_screen_0:  db 'Presets', 0
-Row2_Select_screen_1:  db 'Time    Temp', 0
-Row2_Preset1:		   db 'Preset', 0
-Welcome_to_The_Show:   db 'Welcome',0
-Powering_Down:		   db 'Powering Down',0
+;                          '0123456789abcdef'    <- This helps determine the location of the counter
+Row1_presets:		  	db 'Presets         ', 0
+Row1_soak:  			db 'Soak            ', 0
+Row1_reflow:  			db 'Reflow          ', 0
+Row1_presoak:		   	db 'Pre-soak        ', 0
+Row1_prereflow:		   	db 'Pre-reflow      ', 0
+Row1_cooldown:		   	db 'Cooldown        ', 0
+Row1_Abort:				db 'Aborting process', 0
+Row2_time_temp:  	   	db ' Sec     Tmp    ', 0
+Row2_Preset:		   	db 'Preset          ', 0
 
-; ---------------------------------------------
-; the following code moves a given varaible to 
+; -------------------------------------------------------
+; the following code moves a given 1 byte variable to 
 ; x then converts that value to bcd 
 
 _convert_to_bcd mac 
@@ -284,9 +274,21 @@ _convert_to_bcd mac
 	lcall hex2bcd 
 endmac 
 
-; ------------------------------------------------------------
+; ----------------------------------------------------------
+; macro specifc for converintg the total_time var into a bcd 
+
+_see_the_future mac
+	mov x+0, total_time+0
+	mov x+1, total_time+1
+	mov x+2, #0
+	mov x+3, #0
+	lcall hex2bcd
+endmac
+
+; _____________________________________________________________
+;
 ; Main program 
-; ------------------------------------------------------------
+; ______________________________________________________________
 
 main:
 	; Initialization
@@ -304,30 +306,29 @@ main:
 	lcall Timer1_Init
 	lcall Init_SPI
 	
-	
-	mov row_select_1, #0x00		;Setup Selection screen 
-	mov soak_temp_save, #30
-	mov soak_time_save, #10
-	mov reflow_temp_save, #30
-	mov reflow_time_save, #10
 	mov preset_select, #0x01
-	setb EA   					; enable interrupts 
+	lcall loadPreset 
+	setb EA   						; enable interrupts 
 
-; After initialization the program stays in this 'forever' loop
+
+;_________________________________________________________
+;
+; User interface loop process 
+;_________________________________________________________
 
 
 ;-------------------------------------------------------
-;Welcome Screen
-;Welcoming message
-;-------------------------------------------------------
-	
+; Settings selection screen, and welcome audio 
 	
 Welcome:
 
-	lcall LCD_4bit
-	Wait_Milli_Seconds(#40)
-	Set_Cursor(1,1)		
-	Send_Constant_String(#Welcome_to_The_Show)
+	clr TR1
+	clr ET1
+	clr PWM_pin
+	mov settings_select, #0x01
+	_clearScreen
+	
+	; play welcome audio 
 	mov a, #33	
 	lcall Play_sound_index
 	mov a, #34
@@ -337,131 +338,102 @@ Welcome:
 	mov a, #36
 	lcall Play_sound_index
 	Wait_Milli_seconds(#40)
-	Set_Cursor(1,1)		; ***!!!
-	Send_Constant_String(#Welcome_to_The_Show)
-;--------------------------------------------------
-;Starting sequence
-;Setup mainscreen for startup; selection screen first.
-;Use a variable(?) to swap between selections. Discuss with others.
-;Use two buttons; one to swap between and one to select
-;-----------------------------------------------------
-Selection:
-	;Check if start button is pressed
-	ljmp Startup
-
-?Startmofo:	
-	jb INC_But, ?Display_Row_1
-	Wait_Milli_Seconds(#50)
-	jb INC_But, ?Display_Row_1
-	jnb INC_But, $ ;Waits for button to be lifted
-	lcall LCD_4bit
-	Wait_Milli_Seconds(#50)
-	;row_select_1 swaps between 0 Preset, 1 Soak, 2 Reflow
-	mov a, row_select_1
-	inc a
-	cjne a, #0x03, INCTHATSHIT
-	mov row_select_1, #0
-	sjmp ?Display_Row_1
 	
-INCTHATSHIT:
-	mov row_select_1, a
+settings:
 	
-;row_select_1 swaps between 0 Preset, 1 Soak, 2 Reflow, 3 Accents
-
-?Display_Row_1:
+	; check if start up enganged 
+	lcall checkConBut
+	jnb confirm_flag, noStartUp
+	clr confirm_flag
+	ljmp BURNBABYBURN
+	
+noStartUp:
 	Set_Cursor(1,1)
-	mov a, row_select_1
-	cjne a, #0x00, display_soak ;If it is not preset, have it go to soak
-	Send_Constant_String(#Row1_Select_Screen_0)
+	lcall checkIncBut
+	lcall checkDecBut
+	jbc inc_flag, incSettingsSel
+	jbc dec_flag, decSettingsSel
+	sjmp display_presets
+	
+incSettingsSel:
+	inc settings_select
+	mov a, settings_select
+	cjne a, #4, display_presets
+	mov settings_select, #1
+	sjmp display_presets
+
+decSettingsSel:
+	dec settings_select
+	mov a, settings_select
+	cjne a, #0, display_presets
+	mov settings_select, #3
+	
+display_presets:
+	mov a, settings_select
+	cjne a, #1, display_soak 					; show soak select
+	Send_Constant_String(#Row1_presets)
 	sjmp Selection_Confirm
 
 display_soak:
-	cjne a, #0x01, display_reflow ; If it is not Soak, have it go to reflow
-	Send_Constant_String(#Row1_Select_Screen_1)
+	cjne a, #2, display_reflow 					; show reflow select
+	Send_Constant_String(#Row1_soak)
 	sjmp Selection_Confirm
 	
 display_reflow:
-	Send_Constant_String(#Row1_Select_Screen_2)
-	sjmp Selection_Confirm
-
-;row_1_select swaps between 0 Preset, 1 Soak, 2 Reflow
+	Send_Constant_String(#Row1_reflow)
 
 Selection_Confirm:
-	jb Confirm_But, Jump_Selection
-	Wait_Milli_Seconds(#50)
-	jb Confirm_But, Jump_Selection
-	jnb Confirm_But, $ ;Waits for button to be lifted
-	;Confirm button has been pressed
-	mov a, row_select_1
-	cjne a, #0x00, Soak_Screen_Check;If row_1_select is not 0, jump to Soak_Screen_Check
+	lcall checkSelBut
+	jnb sel_flag, ?settings
+	clr sel_flag
+	
+	; check which setting the user wants to alter
+	mov a, settings_select
+	cjne a, #1, Soak_settings_Check 
 	ljmp Preset_Screen
 
-Soak_Screen_Check:
-	cjne a, #0x01, Reflow_Screen_Check;If row_1_select is not 1, jump to Reflow_Screen_Check
+Soak_settings_Check:
+	cjne a, #2, Reflow_settings_Check
 	ljmp Soak_Screen
 	
-Reflow_Screen_Check:
+Reflow_settings_Check:
 	ljmp Reflow_Screen
 
-Jump_Selection:
-	ljmp selection
-
-;-----------------------------------
-;Start Loop
-;Starts Reflow Process
-;----------------------------------
-
-Startup:
-	jb Start_But, not_starting
-	Wait_Milli_Seconds(#50)
-	jb Start_But, not_starting
-	jnb Start_But, $ ;Waits for button to be lifted
-	;valid press; begin selection
-	ljmp BURNBABYBURN ;Jump to reflow process; REFLOW PROCESS NEEDS STOP-SEQUENCE CODE
-
-not_starting:
-	ljmp ?Startmofo
+?settings:
+	ljmp settings
 
 ;--------------------------------------------------
-;Soak Screen
-;Selects the time and temperature you want
-;Save the value they want for temperature (in CELSIUS) as a variable that we can reuse later
-;Increment with one button, decrement with another, confirm with another and cancel with another. 4 Buttons.
-;Variables: soak_temp_var
-;---------====================================----
-Soak_Screen:
+;Soak settings screen 
+
+Soak_Screen: 
+	WriteCommand(#0x0d)
 	Set_Cursor(1,1)
-	Send_Constant_String(#Row1_Select_screen_1)
+	Send_Constant_String(#Row1_soak)
 	Set_Cursor(2,1)
-	Send_Constant_String(#Row2_Select_screen_1)
+	Send_Constant_String(#Row2_time_temp)
 	mov soak_temp_var, soak_temp_save
 	mov soak_time_var, soak_time_save 
-	mov time_temp_select, #0
-	clr a
+	clr time_temp_select
 	ljmp display_soak_values
 
 Soak_Screen_Wait:
-	lcall pollStart
-	lcall pollInc
-	lcall pollDec
+	lcall checkSelBut
+	lcall checkIncBut
+	lcall checkDecBut
 	jbc sel_flag, switch_soak_sel
 	jbc inc_flag, inc_soak_temp
 	jbc dec_flag, dec_soak_temp
-	ljmp confirm_soak_values
+	ljmp highlight_soak_temp
 	
 switch_soak_sel:
-	inc time_temp_select
-	mov a, time_temp_select
-	cjne a, #0x02, ?confirm_soak_values
-	mov time_temp_select, #0
-	ljmp confirm_soak_values
+	cpl time_temp_select
+	ljmp highlight_soak_temp
 	
-?confirm_soak_values:
-	ljmp confirm_soak_values
+?highlight_soak_temp:
+	ljmp highlight_soak_temp
 
 inc_soak_temp:
-	mov a, time_temp_select
-	cjne a, #0x00, inc_soak_time
+	jnb time_temp_select, inc_soak_time
 	mov a, soak_temp_var
 	inc a
 	cjne a, #0xAB, max_temp_hit	;if dose not meet 170 jmp!
@@ -475,7 +447,7 @@ max_temp_hit:
 inc_soak_time:
 	mov a, soak_time_var
 	inc a
-	cjne a, #0x4e, max_time_hit
+	cjne a, #0x4f, max_time_hit
 	mov soak_time_var, #0x4e
 	ljmp display_soak_values
 
@@ -484,8 +456,7 @@ max_time_hit:
 	ljmp display_soak_values
 
 dec_soak_temp:
-	mov a, time_temp_select
-	cjne a, #0x00, dec_soak_time
+	jnb time_temp_select, dec_soak_time
 	mov a, soak_temp_var
 	dec a
 	cjne a, #0x51, min_temp_hit	;if it is NOT 81, jump and improve
@@ -515,61 +486,62 @@ display_soak_values:
 	_convert_to_bcd(soak_temp_var)
 	lcall LCD_3BCD
 	
+highlight_soak_temp:
+	jnb time_temp_select, highlight_soak_time
+	Set_Cursor(2,9)
+	sjmp confirm_soak_values
+	
+highlight_soak_time:
+	Set_Cursor(2,1)
+	
 confirm_soak_values:
-	jb Confirm_but, ?Soak_Screen_Wait
-	Wait_Milli_Seconds(#50)
-	jb Confirm_but, ?Soak_Screen_Wait
-	jnb Confirm_but, $ 					;Waits for button to be lifted
+	lcall checkConBut
+	jnb confirm_flag, ?Soak_Screen_Wait
 	
 	;Confirm button has been pressed
-	lcall LCD_4bit
-	Wait_Milli_Seconds(#50)
+	clr confirm_flag
 	mov soak_temp_save, soak_temp_var
 	mov soak_time_save, soak_time_var
-	ljmp Selection
+	_clearScreen
+	WriteCommand(#0x0c)		;remove blinking cursor 
+	lcall savePreset
+	ljmp settings
 
 ?Soak_Screen_Wait:
 	ljmp Soak_Screen_Wait
 
-;--------------------------------------------------
-;Reflow Screen
-;Selects the time and temperature you want
-;Save the value they want for temperature (in CELSIUS) as a variable that we can reuse later
-;Increment with one button, decrement with another, confirm with another and cancel with another. 4 Buttons.
-;Variables: reflow_temp_var
-;--------------------------------------------------
-Reflow_Screen:
+; --------------------------------------------------
+; Reflow setting screen 
+
+Reflow_Screen:	
+	WriteCommand(#0x0d)
 	Set_Cursor(1,1)
-	Send_Constant_String(#Row1_Select_screen_2)
+	Send_Constant_String(#Row1_reflow)
 	Set_Cursor(2,1)
-	Send_Constant_String(#Row2_Select_screen_1)
+	Send_Constant_String(#Row2_time_temp)
 	mov reflow_temp_var, reflow_temp_save
 	mov reflow_time_var, reflow_time_save
-	mov time_temp_select, #0
+	clr time_temp_select
 	ljmp display_reflow_values
 
 reflow_Screen_Wait:
-	lcall pollStart
-	lcall pollInc
-	lcall pollDec
+	lcall checkSelBut
+	lcall checkIncBut
+	lcall checkDecBut
 	jbc sel_flag, switch_reflow_sel
 	jbc inc_flag, inc_reflow_temp
 	jbc dec_flag, dec_reflow_temp
-	ljmp confirm_reflow_values
+	ljmp highlight_reflow_temp
 	
 switch_reflow_sel:
-	inc time_temp_select
-	mov a, time_temp_select
-	cjne a, #0x02, ?confirm_reflow_values
-	mov time_temp_select, #0
-	ljmp confirm_reflow_values
+	cpl time_temp_select
+	ljmp highlight_reflow_temp
 	
-?confirm_reflow_values:
-	ljmp confirm_reflow_values
+?highlight_reflow_temp:
+	ljmp highlight_reflow_temp
 
 inc_reflow_temp:
-	mov a, time_temp_select
-	cjne a, #0x00, inc_reflow_time
+	jnb time_temp_select, inc_reflow_time
 	mov a, reflow_temp_var
 	inc a
 	cjne a, #236, max_temp_miss	;if dose not meet 170 jmp!
@@ -592,8 +564,7 @@ max_time_miss:
 	ljmp display_reflow_values
 
 dec_reflow_temp:
-	mov a, time_temp_select
-	cjne a, #0x00, dec_reflow_time
+	jnb time_temp_select, dec_reflow_time
 	mov a, reflow_temp_var
 	dec a
 	cjne a, #214, min_temp_miss	;if it is NOT 81, jump and improve
@@ -607,7 +578,7 @@ min_temp_miss:
 dec_reflow_time:
 	mov a, reflow_time_var
 	dec a
-	cjne a, #34, max_time_miss ;if it is NOT 47, jump 
+	cjne a, #34, min_time_miss ;if it is NOT 47, jump 
 	mov reflow_time_var, #35 ;if it IS 47, move to 48
 	ljmp display_reflow_values
 
@@ -622,148 +593,93 @@ display_reflow_values:
 	Set_Cursor(2,14)
 	_convert_to_bcd(reflow_temp_var)
 	lcall LCD_3BCD
+
+highlight_reflow_temp:
+	jnb time_temp_select, highlight_reflow_time
+	Set_Cursor(2,9)
+	sjmp confirm_reflow_values
 	
+highlight_reflow_time:
+	Set_Cursor(2,1)
+
 confirm_reflow_values:
-	jb Confirm_but, ?reflow_Screen_Wait
-	Wait_Milli_Seconds(#50)
-	jb Confirm_but, ?reflow_Screen_Wait
-	jnb Confirm_but, $ 					;Waits for button to be lifted
+	lcall checkConBut
+	jnb confirm_flag, ?reflow_Screen_Wait
 	
 	;Confirm button has been pressed
-	lcall LCD_4bit
+	clr confirm_flag
 	mov reflow_temp_save, reflow_temp_var
 	mov reflow_time_save, reflow_time_var
-	ljmp Selection
+	WriteCommand(#0x0c)						; remove blinking cursor 
+	_clearScreen
+	lcall savePreset
+	ljmp settings
 
 ?reflow_Screen_Wait:
 	ljmp reflow_Screen_Wait
 
 ;-------------------------------------------------
-;Preset Screen
-;Various presets to use.
-;-------------------------------------------------
+;Preset Settings screen 
+
 Preset_Screen:
 	Set_Cursor(1,1)
-	Send_Constant_String(#Row1_Select_Screen_0)
+	Send_Constant_String(#Row1_presets)
 	Set_Cursor(2,1)
-	Send_Constant_String(#Row2_Preset1)
+	Send_Constant_String(#Row2_Preset)
 	
-pollPresets:
-	lcall pollInc
-	lcall pollDec
+presets_screen_wait:
+	lcall checkIncBut
+	lcall checkDecBut
 	jbc inc_flag, incPreset
 	jbc dec_flag, decPreset
-	sjmp display_presets
+	sjmp display_preset_value
 	
 incPreset:
 	inc preset_select
 	mov a, preset_select
-	cjne a, #0x04, display_presets
+	cjne a, #0x04, display_preset_value
 	mov preset_select, #3
-	sjmp display_presets
+	sjmp display_preset_value
 
 decPreset:
 	dec preset_select
 	mov a, preset_select
-	cjne a, #0x00, display_presets
+	cjne a, #0x00, display_preset_value
 	mov preset_select, #1
-	sjmp display_presets
 	
-display_presets:
+display_preset_value:
 	Set_Cursor(2,8)
 	Display_BCD(preset_select)
 	
-confirm_preset_values:
-	jb Confirm_but, pollPresets
-	Wait_Milli_Seconds(#50)
-	jb Confirm_but, pollPresets
-	jnb Confirm_but, $ ;Waits for button to be lifted
-	;Confirm button has been pressed
-	lcall LCD_4bit
-	Wait_Milli_Seconds(#50)
-	ljmp Selection
-
-
-;-------------------------------------------------
-;STOP SEQUENCE
-;Reset all temperatures, reset all timers, and return to starting sequence
-;Maybe an alert to say when it's done?
-;Key it to a reset button or something
-;----------------------------------------------------
-Stop_Sequence:
-	;***Set power to 0
-	mov soak_time_var, soak_time_save
-	mov soak_temp_var, soak_temp_save
-	mov reflow_temp_var, reflow_temp_save
-	mov reflow_time_var, reflow_time_save
-	clr PWM_flag
-	lcall Check_PWM_flag
-	mov PWM_DUTY, #0
-	Set_Cursor(2,1)
-	Send_Constant_String(#Powering_Down)
-	;***Once temperature dips below a certain value, continue
-Cooldown:
-	_feel_the_burn
-	mov y+0, #22
-	mov y+1, #0
-	mov y+2, #0
-	mov y+3, #0
-	lcall x_lteq_y
-	jnb mf, Cooldown
-	clr mf 
-	ljmp OFF_Sequence
-
-;---------------------------------------------
-;OFF SEQUENCE
-;Turns off screen
-;--------------------------------------------
-OFF_Sequence:
+	; confimr preset value 
+	lcall checkConBut
+	jnb confirm_flag, presets_screen_wait
 	
-	mov a, #36
-	lcall Play_sound_index
-	mov a, #35
-	lcall Play_sound_index
-	mov a, #32
-	lcall Play_sound_index
-	Wait_Milli_Seconds(#200)
-	mov a, #36
-	lcall Play_sound_index
-	mov a, #35
-	lcall Play_sound_index
-	mov a, #32
-	lcall Play_sound_index
-	Wait_Milli_Seconds(#100)
-	mov a, #36
-	lcall Play_sound_index
-	mov a, #35
-	lcall Play_sound_index
-	mov a, #32
-	lcall Play_sound_index
-	ljmp Welcome
-
-;_______________________;
-;Running Loop Proccesses;
-;_______________________;
+	; preset has been chosne 
+	clr confirm_flag
+	lcall loadPreset
+	_clearScreen
+	ljmp settings
 
 
-;----------
-;Reflow Process
-;Begin soaking, and for how long. Then begin reflowing, and for how long.
-;Is a loop that regularly checks for stop sequence
-;----------
-BURNBABYBURN:;DIIISCO INFERNO
+;_________________________________________________________
+;
+; Reflow Loop Proccesses
+;_________________________________________________________
+
+
+;------------------------------------------------------------
+; initializtion of reflow process 
+
+BURNBABYBURN:
 	
-	; enable interrupts for timer 1 and timer 0
+	_clearScreen
 	
-	;Send strings that displays the base format: Temp, time, reflow proccess state
-	Set_Cursor(1,1)
-	Send_Constant_String(#Row1_presoak);Displays proccess pre-soak
-	;Following code is to set the duty cycle and heat
-	mov PWM_FREQ, #250
-	mov PWM_DUTY, #255 ;Set duty cycle to MAX POWER
-	setb PWM_flag
-	lcall Check_PWM_flag
-	setb TR1			; enables timer 1 for pwm
+	; enable timer 0 and timer 1 as well as their respective interrupts
+	setb TR1
+	setb ET1
+	
+	; Audio announces entering pre-soak 
 	mov a, #37
 	lcall Play_sound_index
 	mov a, #38
@@ -771,37 +687,47 @@ BURNBABYBURN:;DIIISCO INFERNO
 	mov a, #29
 	lcall Play_sound_index
 	
+	; initialize lcd and variabels for presoak
+	Set_Cursor(1,1)
+	Send_Constant_String(#Row1_presoak)
+	Set_Cursor(2,1)
+	Send_Constant_String(#Row2_time_temp)
 	
-presoak:
-	jb Start_But, ?presoak
-	Wait_Milli_Seconds(#50)
-	jb Start_But, ?presoak
-	jnb Start_But, $
-	;Ah shit STOP STOP STOP
-	ljmp Stop_Sequence
-	
+	mov total_time+0, #0			; start timer 
+	mov total_time+1, #0
+	mov pwm_count, #0x05			; duty cyle 100%
 
-?presoak:
+; ---------------------------------------------------------
+; pre-soak sequance 
+
+presoak:
+	lcall checkConBut
+	jnb confirm_flag, presoak_wait
+	clr confirm_flag
+	ljmp Stop_Sequence
+
+presoak_wait:
+	ljmp SLOWCOOKER			; check if pre-soak taking too long 
+
+keep_roasting:	
+	; display tempreture and time
+	Set_Cursor(2,6)
+	_see_the_future
+	lcall LCD_3BCD
 	Set_Cursor(2,14)
 	_feel_the_burn
 	lcall LCD_3BCD
+	
+	; compare tempreture 
 	mov y+0, soak_temp_save
 	mov y+1, #0
 	mov y+2, #0
 	mov y+3, #0
-	lcall x_gt_y ;if x is greater than y, then mf = 1
+	lcall x_gt_y 
 	jnb mf, presoak
-	
-	;Currently in soaking
 	clr mf 
-	Set_Cursor(1,1)
-	Send_Constant_String(#Row1_select_screen_1);Displays proccess soak
-	Set_Cursor(2,1)
-	Send_Constant_String(#Row2_select_screen_1)
-	Set_Cursor(2,6)
-	_convert_to_bcd(soak_time_save)
-	Display_BCD(bcd+0)
-	mov PWM_DUTY, #0;Set duty cycle to 20% ish
+	
+	; Audio annouces entering soak 
 	mov a, #37
 	lcall Play_sound_index
 	mov a, #38
@@ -809,131 +735,230 @@ presoak:
 	mov a, #30
 	lcall Play_sound_index
 	mov soak_time_var, soak_time_save
+	
+	; initialize varables and lcd for soak
+	Set_Cursor(1,1)
+	Send_Constant_String(#Row1_soak)
+	Set_Cursor(2,1)
+	Send_Constant_String(#Row2_time_temp)	; clear 3 digit BCDs 
+	
+	mov pwm_count, #0x02	 				; duty cycle at 20%
+	mov soak_time_var, soak_time_save
+
+; ---------------------------------------------------------
+; soak sequance 
 
 soak:
-	jb Start_But, ?soak
-	Wait_Milli_Seconds(#50)
-	jb Start_But, ?soak
-	jnb Start_But, $
-	;Ah shit STOP STOP STOP
+	lcall checkConBut
+	jnb confirm_flag, soak_wait
+	clr confirm_flag
 	ljmp Stop_Sequence
 
-?soak:
-	;check timer
-	Set_Cursor(2,14)
-	_feel_the_burn
-	lcall LCD_3BCD
-	mov a, seconds_flag
-	jnb seconds_flag, soak
-	
-	clr seconds_flag
+soak_wait:
+
+	; display tempreture and time
 	Set_Cursor(2,6)
 	_convert_to_bcd(soak_time_var)
 	Display_BCD(bcd+0)
+	Set_Cursor(2,14)
+	_feel_the_burn
+	lcall LCD_3BCD
+	
+	; chekc if a second has passed 
+	jnb seconds_flag, soak
+	clr seconds_flag
+	
+	; 1 second has passed 
 	dec soak_time_var
 	mov a, soak_time_var
-	cjne a, #0, soak ;if soak_time_var is not 0, then send it back to soak
+	jnz soak 					;if soak_time_var is not 0, then send it back to soak
 	
-	;Soak time has reached 0; move onto next step
-	lcall LCD_4bit
-	Wait_Milli_Seconds(#40)
-	Set_Cursor(1,1)
-	Send_Constant_String(#Row1_prereflow);Displays proccess pre-reflow
-	mov PWM_DUTY, #255 ;Set the duty cycle to MAX POWER
+	; Audio announces entering pre-reflow
 	mov a, #37
 	lcall Play_sound_index
 	mov a, #38
 	lcall Play_sound_index
 	mov a, #31
 	lcall Play_sound_index
+
+	; initialize lcd and varables for pre-reflow
+	Set_Cursor(1,1)
+	Send_Constant_String(#Row1_prereflow)
 	
+	mov pwm_count, #0x05					; duty cycle at 100%
+
+; ---------------------------------------------------------
+; pre-reflow sequnce 
+
 prereflow:
-	jb Start_But, ?prereflow
-	Wait_Milli_Seconds(#50)
-	jb Start_But, ?prereflow
-	jnb Start_But, $
-	;Ah shit STOP STOP STOP
+	lcall checkConBut
+	jnb confirm_flag, prereflow_wait
+	clr confirm_flag
 	ljmp Stop_Sequence
 
-?prereflow:
+prereflow_wait:
+
+	; display tempreture and time
+	Set_Cursor(2,6)
+	_see_the_future
+	lcall LCD_3BCD
 	Set_Cursor(2,14)
 	_feel_the_burn
 	lcall LCD_3BCD
+	
+	; compare tempreture 
 	mov y+0, reflow_temp_save
 	mov y+1, #0
 	mov y+2, #0
 	mov y+3, #0
-	lcall x_gt_y ;if x is greater than y, then mf = 1
+	lcall x_gt_y 
 	jnb mf, prereflow
+	clr mf 
 	
-	;in reflow
-	clr mf
-	Set_Cursor(1,1)
-	Send_Constant_string(#Row1_select_screen_2)
-	Set_Cursor(2,1)
-	Send_Constant_string(#Row2_select_screen_1)
-	mov PWM_DUTY, #0 							;Set duty cycle to 20%
+	; Audio annouces entering reflow 
 	mov a, #37
 	lcall Play_sound_index
 	mov a, #38
 	lcall Play_sound_index
 	mov a, #32
 	lcall Play_sound_index
+	
+	; initialize variables and lcd for reflow 
+	Set_Cursor(1,1)
+	Send_Constant_string(#Row1_reflow)
+	Set_Cursor(2,1)
+	Send_Constant_string(#Row2_time_temp)
+	
+	mov pwm_count, #0x02					; duty cycle at 20%
 	mov reflow_time_var, reflow_time_save
 	
+; -------------------------------------------------------------
+; reflow sequnce 
+	
 reflow:
+	lcall checkConBut
+	jnb confirm_flag, reflow_wait
+	clr confirm_flag
+	ljmp Stop_Sequence
+	
+reflow_wait:
+	ljmp FLAMINGHOTCHEETOs			; chekc if tmep too high 
+	
+not_flaming:
+	; display tempreture and time
+	Set_Cursor(2,6)
+	_convert_to_bcd(reflow_time_var)
+	Display_BCD(bcd+0)
 	Set_Cursor(2,14)
 	_feel_the_burn
 	lcall LCD_3BCD
 	
-	;Somehow maintain temp code
-	ljmp FLAMINGHOTCHEETOS
-?reflow:
+	; chekc if 1 second has passed 
 	jnb seconds_flag, reflow
-	
 	clr seconds_flag
-	Set_Cursor(2,6)
-	_convert_to_bcd(reflow_time_var)
-	Display_BCD(bcd+0)
+	
+	; 1 second has passed 
 	dec reflow_time_var
 	mov a, reflow_time_var
-	cjne a, #0x00, reflow ;if soak_time_var is not 0, then send it back to soak
+	jnz reflow 
 	
-	;Reflow time has reached 0; move onto next step	
-	lcall LCD_4bit;Clear screen
+	; initialize lcd and variables for cooling 	
 	Set_Cursor(1,1)
 	Send_Constant_String(#Row1_cooldown)
-	ljmp Stop_Sequence
 	
-FLAMINGHOTCHEETOS:
-	clr mf
+	mov pwm_count, #0						; duty cycle is 0%
+	clr PWM_PIN								; clear pwm pin
+	clr ET1									; disable timer 1 inturrpts
+
+;-------------------------------------------------
+; cool down sequnce 
+
+Cooldown:
+
+	; display tempreture and time 
+	Set_Cursor(2,6)
+	_see_the_future
+	lcall LCD_3BCD
+	Set_Cursor(2,14)
+	_feel_the_burn
+	lcall LCD_3BCD
+	
+	; compare tempreture 
+	mov y+0, #50
+	mov y+1, #0
+	mov y+2, #0
+	mov y+3, #0
+	lcall x_lteq_y
+	jnb mf, Cooldown
+	clr mf 
+	ljmp welcome
+	
+	
+; -------------------------------------------------------
+; check if temp too high 
+
+FLAMINGHOTCHEETOs:
 	_feel_the_burn
 	mov y+0, #255
 	mov Y+1, #0
 	mov y+2, #0
 	mov y+3, #0
 	lcall x_gt_y
-	jnb mf, notflaming
-	;IS FLAMIN
+	jnb mf, BAKEDCRUNCHYCHEETOS
 	clr mf
-	ljmp Stop_Sequence
-
-notflaming:
-	jb Start_But, ?DONTSTOPMENOW
-	Wait_Milli_Seconds(#50)
-	jb Start_But, ?DONTSTOPMENOW
-	jnb Start_But, $
-	;Ah shit STOP STOP STOP
-	ljmp Stop_Sequence
-?DONTSTOPMENOW:
-	ljmp ?reflow
 	
+	; tempretue too high stop reflow 
+	ljmp Stop_Sequence
+	
+BAKEDCRUNCHYCHEETOS:
+	ljmp not_flaming
+
+; ------------------------------------------------------
+; check if pre-soak is taking too long 
+
+SLOWCOOKER:
+	_see_the_future
+	mov y+0, #50
+	mov y+1, #0
+	mov y+2, #0
+	mov y+3, #0
+	lcall x_gt_y
+	jnb mf, SPITROAST
+	clr mf 
+	
+	; pre-soak took too long 
+	ljmp Stop_Sequence
+	
+SPITROAST:
+	ljmp keep_roasting
+
+; ------------------------------------------------------
+; emergancy stop sequance 
+
+Stop_Sequence:
+	
+	_clearScreen
+	Set_Cursor(1,1)
+	Send_Constant_String(#Row1_Abort)
+	Wait_Milli_seconds(#255)
+	Wait_Milli_seconds(#255)
+	Wait_Milli_seconds(#255)
+	Wait_Milli_seconds(#255)
+	
+	mov pwm_count, #0						; duty cycle is 0%
+	clr PWM_PIN								; clear pwm pin
+	clr ET1									; disable timer 1 inturrpts
+	
+	; clear screen initialize lcd for cooldown 
+	_clearScreen
+	Set_Cursor(1,1)
+	Send_Constant_string(#Row1_cooldown)
+	Set_Cursor(2,1)
+	Send_Constant_string(#Row2_time_temp)
+	
+	ljmp Cooldown
+
 end 
-
-
-
-
-
 
 
 
